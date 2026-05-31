@@ -12,6 +12,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -149,6 +150,8 @@ class FolderContext:
     tree: str
     files: list[tuple[str, str]]
     skipped: int = 0
+    skipped_by_limit: int = 0
+    skipped_reasons: dict[str, int] | None = None
 
 
 class ApiError(RuntimeError):
@@ -402,24 +405,40 @@ def discover_folder_paths(root: Path) -> list[Path]:
         return sorted(root.rglob("*"), key=lambda item: str(item.relative_to(root)))
 
 
-def build_folder_tree(root: Path, paths: list[Path], *, max_entries: int) -> tuple[str, int]:
+def skip_reason(path: Path) -> str | None:
+    return next((part for part in path.parts if part in IGNORED_DIRS), None)
+
+
+def format_skip_reasons(context: FolderContext) -> str:
+    parts: list[str] = []
+    if context.skipped_by_limit:
+        parts.append(f"tree limit: {context.skipped_by_limit}")
+    if context.skipped_reasons:
+        for reason, count in sorted(context.skipped_reasons.items(), key=lambda item: item[1], reverse=True)[:3]:
+            parts.append(f"{reason}: {count}")
+    return ", ".join(parts) or "-"
+
+
+def build_folder_tree(root: Path, paths: list[Path], *, max_entries: int) -> tuple[str, int, int, dict[str, int]]:
     lines: list[str] = []
-    skipped = 0
+    skipped_by_limit = 0
+    skipped_reasons: Counter[str] = Counter()
 
     for path in paths:
         relative = path.relative_to(root)
-        if should_skip_path(relative):
-            skipped += 1
+        reason = skip_reason(relative)
+        if reason:
+            skipped_reasons[reason] += 1
             continue
         if len(lines) >= max_entries:
-            skipped += 1
+            skipped_by_limit += 1
             continue
 
         depth = len(relative.parts) - 1
         suffix = "/" if path.is_dir() else ""
         lines.append(f"{'  ' * depth}- {relative.name}{suffix}")
 
-    return "\n".join(lines), skipped
+    return "\n".join(lines), skipped_by_limit + sum(skipped_reasons.values()), skipped_by_limit, dict(skipped_reasons)
 
 
 def load_folder_context(
@@ -438,7 +457,7 @@ def load_folder_context(
     files: list[tuple[str, str]] = []
 
     paths = discover_folder_paths(root)
-    tree, skipped = build_folder_tree(root, paths, max_entries=max_tree_entries)
+    tree, skipped, skipped_by_limit, skipped_reasons = build_folder_tree(root, paths, max_entries=max_tree_entries)
 
     with folder_progress() as progress:
         task = progress.add_task(f"Loading folder context from {root}", total=len(paths))
@@ -454,7 +473,14 @@ def load_folder_context(
             if len(files) >= max_files:
                 break
 
-    return FolderContext(root=root, tree=tree, files=files, skipped=skipped)
+    return FolderContext(
+        root=root,
+        tree=tree,
+        files=files,
+        skipped=skipped,
+        skipped_by_limit=skipped_by_limit,
+        skipped_reasons=skipped_reasons,
+    )
 
 
 def folder_context_message(contexts: list[FolderContext]) -> dict[str, str]:
@@ -471,7 +497,7 @@ def folder_context_message(contexts: list[FolderContext]) -> dict[str, str]:
         sections.append("### Tree")
         sections.append(context.tree or "[empty tree]")
         if context.skipped:
-            sections.append(f"\n[Skipped {context.skipped} tree entries because of limits or ignore rules.]")
+            sections.append(f"\n[Skipped {context.skipped} tree entries: {format_skip_reasons(context)}.]")
         sections.append("")
         sections.append("### Files")
         for relative, text in context.files:
@@ -489,9 +515,10 @@ def render_folder_contexts(contexts: list[FolderContext]) -> None:
     table.add_column("Folder", style="white")
     table.add_column("Files loaded", justify="right", style="green")
     table.add_column("Tree skipped", justify="right", style="yellow")
+    table.add_column("Why", style="yellow")
 
     for context in contexts:
-        table.add_row(str(context.root), str(len(context.files)), str(context.skipped))
+        table.add_row(str(context.root), str(len(context.files)), str(context.skipped), format_skip_reasons(context))
     CONSOLE.print(table)
 
 

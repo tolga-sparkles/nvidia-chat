@@ -284,6 +284,8 @@ When a folder is attached, `nvidia-chat` shows scan/load progress in the
 terminal. By default it can include up to 2000 text files per folder, while
 showing up to 2000 folder tree entries and still skipping heavy dependency,
 cache, build, and binary paths.
+The folder summary also shows why tree entries were skipped, for example
+`node_modules: 2444` or `tree limit: 300`.
 
 Folder context is attached to each request but is not permanently written into
 the chat history.
