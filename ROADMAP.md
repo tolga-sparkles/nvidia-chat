@@ -35,9 +35,10 @@ assistant for NVIDIA API Catalog / NIM models.
 
 ### Smart context selection
 
-- Add an agentic folder mode where the model first sees the file tree and then
-  chooses which files should be loaded.
-- Rank files by relevance to the current user request before sending context.
+- Improve the current smart folder mode where the model first sees the file tree
+  and then chooses which files should be loaded.
+- Refine file ranking by relevance to the current user request before sending
+  context.
 - Prefer local project files over generated, vendored, dependency, or cache
   files.
 - Add a context budget so the CLI can decide how many files and characters to

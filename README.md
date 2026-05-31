@@ -266,9 +266,13 @@ Attach multiple folders:
 nvidia-chat --folder backend --folder frontend "Explain how these parts fit together"
 ```
 
-The CLI sends a folder tree plus selected text files as context. Heavy folders
-such as `.git`, `node_modules`, `.venv`, `dist`, `build`, and cache directories
-are ignored.
+By default, folder context uses smart selection. The CLI indexes the folder
+tree and candidate text files first. For each prompt, the selected model chooses
+the most relevant files to read, then only those files are sent as context. This
+keeps large projects useful without flooding the model with unrelated files.
+
+Heavy folders such as `.git`, `node_modules`, `.venv`, `dist`, `build`, and
+cache directories are ignored.
 
 Useful limits:
 
@@ -277,13 +281,21 @@ nvidia-chat --folder . \
   --folder-max-files 2000 \
   --folder-max-file-chars 8000 \
   --folder-tree-entries 2000 \
+  --folder-smart-files 20 \
   "Summarize the architecture"
 ```
 
+Use the old eager behavior when you really want to load all matching files up
+front:
+
+```bash
+nvidia-chat --folder . --folder-mode all "Summarize everything loaded"
+```
+
 When a folder is attached, `nvidia-chat` shows scan/load progress in the
-terminal. By default it can include up to 2000 text files per folder, while
-showing up to 2000 folder tree entries and still skipping heavy dependency,
-cache, build, and binary paths.
+terminal. By default it indexes up to 2000 candidate text files per folder,
+shows up to 2000 folder tree entries, and lets the model select up to 20 files
+per prompt.
 The folder summary also shows why tree entries were skipped, for example
 `node_modules: 2444` or `tree limit: 300`.
 
