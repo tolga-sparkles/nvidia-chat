@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nvidia-chat-cli"
+version = "0.1.0"
+description = "Terminal chat client for NVIDIA NIM models"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Tolga" }
+]
+dependencies = [
+  "rich>=13.7.0",
+]
+
+[project.scripts]
+nvidia-chat = "nvidia_chat_cli.cli:main"
