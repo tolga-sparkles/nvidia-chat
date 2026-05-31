@@ -802,6 +802,48 @@ def attach_folder_interactively(
     render_folder_contexts([context])
 
 
+def reload_folder_context(
+    context: FolderContext,
+    *,
+    max_files: int,
+    max_file_chars: int,
+    max_tree_entries: int,
+    mode: str,
+) -> FolderContext:
+    return load_folder_context(
+        str(context.root),
+        max_files=max_files,
+        max_file_chars=max_file_chars,
+        max_tree_entries=max_tree_entries,
+        mode=mode,
+    )
+
+
+def set_folder_mode(
+    folder_contexts: list[FolderContext],
+    *,
+    mode: str,
+    max_files: int,
+    max_file_chars: int,
+    max_tree_entries: int,
+) -> list[FolderContext]:
+    if not folder_contexts:
+        return folder_contexts
+
+    updated: list[FolderContext] = []
+    for context in folder_contexts:
+        updated.append(
+            reload_folder_context(
+                context,
+                max_files=max_files,
+                max_file_chars=max_file_chars,
+                max_tree_entries=max_tree_entries,
+                mode=mode,
+            )
+        )
+    return updated
+
+
 class DuckDuckGoHTMLParser(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -1815,8 +1857,9 @@ def run_interactive(
     header.append("NVIDIA Chat CLI\n", style="bold green")
     header.append("Model: ", style="dim")
     header.append(model, style="bold white")
-    header.append("\nCommands: /clear, /exit, /web on, /web off, /folder", style="dim")
+    header.append("\nCommands: /clear, /exit, /web on, /web off, /smart-folder on, /smart-folder off, /folder", style="dim")
     header.append(f"\nWeb: {'on' if web_enabled else 'off'}", style="dim")
+    header.append(f"\nSmart folder: {'on' if folder_mode == 'smart' else 'off'}", style="dim")
     if folder_contexts:
         header.append(f"\nFolders: {len(folder_contexts)} attached", style="dim")
     CONSOLE.print(Panel(header, border_style="green"))
@@ -1843,6 +1886,30 @@ def run_interactive(
         if prompt == "/web off":
             web_enabled = False
             CONSOLE.print(Panel("Web context disabled.", border_style="blue"))
+            continue
+        if prompt == "/smart-folder on":
+            folder_mode = "smart"
+            folder_contexts[:] = set_folder_mode(
+                folder_contexts,
+                mode=folder_mode,
+                max_files=folder_max_files,
+                max_file_chars=folder_max_file_chars,
+                max_tree_entries=folder_tree_entries,
+            )
+            CONSOLE.print(Panel("Smart folder selection enabled.", border_style="blue"))
+            render_folder_contexts(folder_contexts)
+            continue
+        if prompt == "/smart-folder off":
+            folder_mode = "all"
+            folder_contexts[:] = set_folder_mode(
+                folder_contexts,
+                mode=folder_mode,
+                max_files=folder_max_files,
+                max_file_chars=folder_max_file_chars,
+                max_tree_entries=folder_tree_entries,
+            )
+            CONSOLE.print(Panel("Smart folder selection disabled. New folder context will load all matching text files.", border_style="blue"))
+            render_folder_contexts(folder_contexts)
             continue
         if prompt == "/folders":
             render_folder_contexts(folder_contexts)
