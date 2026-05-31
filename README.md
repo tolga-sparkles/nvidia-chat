@@ -215,6 +215,8 @@ Interactive commands:
 ```text
 /web on
 /web off
+/model
+/models
 /smart-folder on
 /smart-folder off
 /folder

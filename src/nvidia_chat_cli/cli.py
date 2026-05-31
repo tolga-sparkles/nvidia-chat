@@ -1866,6 +1866,7 @@ def run_interactive(
     settings: Settings,
     model: str,
     *,
+    models: list[str],
     web_enabled: bool,
     web_results: int,
     web_direct: bool,
@@ -1881,7 +1882,7 @@ def run_interactive(
     header.append("NVIDIA Chat CLI\n", style="bold green")
     header.append("Model: ", style="dim")
     header.append(model, style="bold white")
-    header.append("\nCommands: /clear, /exit, /web on, /web off, /smart-folder on, /smart-folder off, /folder", style="dim")
+    header.append("\nCommands: /clear, /exit, /model, /web on, /web off, /smart-folder on, /smart-folder off, /folder", style="dim")
     header.append(f"\nWeb: {'on' if web_enabled else 'off'}", style="dim")
     header.append(f"\nSmart folder: {'on' if folder_mode == 'smart' else 'off'}", style="dim")
     if folder_contexts:
@@ -1902,6 +1903,17 @@ def run_interactive(
         if prompt == "/clear":
             messages.clear()
             CONSOLE.print(Panel("Conversation cleared.", border_style="yellow"))
+            continue
+        if prompt in {"/model", "/models"}:
+            previous_model = model
+            try:
+                model = choose_model(models, None)
+            except SystemExit:
+                model = previous_model
+                CONSOLE.print(Panel(f"Model unchanged: [bold]{model}[/bold]", border_style="yellow"))
+                continue
+            messages.clear()
+            CONSOLE.print(Panel(f"Model changed:\n[dim]{previous_model}[/dim]\n-> [bold]{model}[/bold]\n\nConversation cleared for the new model.", border_style="green"))
             continue
         if prompt == "/web on":
             web_enabled = True
@@ -1952,6 +1964,9 @@ def run_interactive(
                 max_tree_entries=folder_tree_entries,
                 mode=folder_mode,
             )
+            continue
+        if prompt == "/foler" or prompt.startswith("/foler "):
+            CONSOLE.print(Panel("Unknown command `/foler`. Did you mean `/folder`?", border_style="yellow"))
             continue
 
         request_messages, _ = build_messages(
@@ -2065,6 +2080,7 @@ def main(argv: list[str] | None = None) -> None:
         run_interactive(
             settings,
             model,
+            models=models,
             web_enabled=args.web,
             web_results=args.web_results,
             web_direct=args.web_direct,

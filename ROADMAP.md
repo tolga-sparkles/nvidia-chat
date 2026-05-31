@@ -27,8 +27,8 @@ assistant for NVIDIA API Catalog / NIM models.
 
 - [ ] Add `/thinking on`, `/thinking off`, and `/thinking auto`.
 - [x] Improve thinking display so long reasoning output stays readable.
-- [ ] Add `/model` inside chat to switch models without restarting.
-- [ ] Add `/models` inside chat to reopen the categorized model picker.
+- [x] Add `/model` inside chat to switch models without restarting.
+- [x] Add `/models` inside chat to reopen the categorized model picker.
 - [ ] Add `/help` with all interactive commands.
 
 ## Mid Term
