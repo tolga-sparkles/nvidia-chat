@@ -14,6 +14,7 @@ citations, and secure first-run API key storage.
 - Category-based model picker with curated popular models
 - Streaming responses by default
 - Optional web mode that lets the model choose what to search
+- Folder context for project review and codebase summaries
 - Web source table and citation-aware answer context
 - Markdown rendering, including improved table display
 - Thinking/reasoning capture for models that return it
@@ -58,7 +59,7 @@ when you install the project.
 Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/nvidia-chat.git
+git clone https://github.com/tolga-sparkles/nvidia-chat.git
 cd nvidia-chat
 ```
 
@@ -146,6 +147,12 @@ Disable streaming:
 nvidia-chat --no-stream "Give me a short answer"
 ```
 
+Attach a folder as project context:
+
+```bash
+nvidia-chat --folder . "Review this project structure"
+```
+
 Show the config path:
 
 ```bash
@@ -213,6 +220,39 @@ Interactive commands:
 The model is instructed to cite web-backed claims with source numbers like
 `[1]` and `[2]`.
 
+## Folder Context
+
+Attach a folder when you want the model to interpret, review, summarize, or
+explain a project:
+
+```bash
+nvidia-chat --folder path/to/project "Bu klasörü yorumla"
+nvidia-chat --folder . "Review this repository and list improvement ideas"
+```
+
+Attach multiple folders:
+
+```bash
+nvidia-chat --folder backend --folder frontend "Explain how these parts fit together"
+```
+
+The CLI sends a folder tree plus selected text files as context. Heavy folders
+such as `.git`, `node_modules`, `.venv`, `dist`, `build`, and cache directories
+are ignored.
+
+Useful limits:
+
+```bash
+nvidia-chat --folder . \
+  --folder-max-files 30 \
+  --folder-max-file-chars 8000 \
+  --folder-tree-entries 300 \
+  "Summarize the architecture"
+```
+
+Folder context is attached to each request but is not permanently written into
+the chat history.
+
 ## Thinking Output
 
 Some reasoning models return separate thinking/reasoning fields or embed
@@ -267,6 +307,12 @@ Use a coding model:
 
 ```bash
 nvidia-chat -m qwen/qwen3-coder-480b-a35b-instruct "Write a Python CLI skeleton"
+```
+
+Review a local project folder:
+
+```bash
+nvidia-chat --folder . "Bu projeyi mimari, riskler ve geliştirme önerileriyle yorumla"
 ```
 
 Use a non-streamed answer for cleaner copy/paste:

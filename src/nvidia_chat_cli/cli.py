@@ -66,6 +66,54 @@ CHAT_CATEGORY_ORDER = [
     "Domain Specific",
 ]
 NON_CHAT_CATEGORY_HINT = "All API Models"
+IGNORED_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    "coverage",
+}
+TEXT_EXTENSIONS = {
+    ".c",
+    ".cc",
+    ".cfg",
+    ".conf",
+    ".cpp",
+    ".css",
+    ".env",
+    ".example",
+    ".go",
+    ".h",
+    ".hpp",
+    ".html",
+    ".ini",
+    ".java",
+    ".js",
+    ".json",
+    ".jsx",
+    ".md",
+    ".py",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 
 
 @dataclass(frozen=True)
@@ -89,6 +137,14 @@ class WebResult:
     url: str
     snippet: str
     content: str = ""
+
+
+@dataclass(frozen=True)
+class FolderContext:
+    root: Path
+    tree: str
+    files: list[tuple[str, str]]
+    skipped: int = 0
 
 
 class ApiError(RuntimeError):
@@ -288,6 +344,119 @@ def ensure_api_key(settings: Settings) -> Settings:
         save_api_key(api_key)
         CONSOLE.print(Panel(f"Saved to [bold]{config_file()}[/bold]", title="API key verified", border_style="green"))
         return Settings(api_key, settings.base_url, settings.default_model, settings.validate_model)
+
+
+def should_skip_path(path: Path) -> bool:
+    return any(part in IGNORED_DIRS for part in path.parts)
+
+
+def is_probably_text_file(path: Path) -> bool:
+    if path.name in {".env", ".gitignore", "Dockerfile", "Makefile"}:
+        return True
+    return path.suffix.lower() in TEXT_EXTENSIONS
+
+
+def safe_read_text(path: Path, *, max_chars: int) -> str | None:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+
+    if b"\x00" in raw[:4096]:
+        return None
+
+    text = raw.decode("utf-8", errors="replace")
+    if len(text) > max_chars:
+        return f"{text[:max_chars].rstrip()}\n\n[truncated]"
+    return text
+
+
+def build_folder_tree(root: Path, *, max_entries: int) -> tuple[str, int]:
+    lines: list[str] = []
+    skipped = 0
+
+    for path in sorted(root.rglob("*"), key=lambda item: str(item.relative_to(root))):
+        relative = path.relative_to(root)
+        if should_skip_path(relative):
+            skipped += 1
+            continue
+        if len(lines) >= max_entries:
+            skipped += 1
+            continue
+
+        depth = len(relative.parts) - 1
+        suffix = "/" if path.is_dir() else ""
+        lines.append(f"{'  ' * depth}- {relative.name}{suffix}")
+
+    return "\n".join(lines), skipped
+
+
+def load_folder_context(
+    folder: str,
+    *,
+    max_files: int,
+    max_file_chars: int,
+    max_tree_entries: int,
+) -> FolderContext:
+    root = Path(folder).expanduser().resolve()
+    if not root.exists():
+        raise SystemExit(f"Folder not found: {root}")
+    if not root.is_dir():
+        raise SystemExit(f"Not a folder: {root}")
+
+    tree, skipped = build_folder_tree(root, max_entries=max_tree_entries)
+    files: list[tuple[str, str]] = []
+
+    for path in sorted(root.rglob("*"), key=lambda item: str(item.relative_to(root))):
+        relative = path.relative_to(root)
+        if should_skip_path(relative) or not path.is_file() or not is_probably_text_file(path):
+            continue
+        text = safe_read_text(path, max_chars=max_file_chars)
+        if text is None:
+            continue
+        files.append((str(relative), text))
+        if len(files) >= max_files:
+            break
+
+    return FolderContext(root=root, tree=tree, files=files, skipped=skipped)
+
+
+def folder_context_message(contexts: list[FolderContext]) -> dict[str, str]:
+    sections = [
+        "The user attached folder context. Use it to understand, review, explain, or summarize the project.",
+        "Refer to file paths when discussing specific code or documents.",
+        "If the attached context is insufficient, say which files or details are missing.",
+        "",
+    ]
+
+    for context in contexts:
+        sections.append(f"## Folder: {context.root}")
+        sections.append("")
+        sections.append("### Tree")
+        sections.append(context.tree or "[empty tree]")
+        if context.skipped:
+            sections.append(f"\n[Skipped {context.skipped} additional entries because of limits or ignore rules.]")
+        sections.append("")
+        sections.append("### Files")
+        for relative, text in context.files:
+            sections.append(f"\n#### {relative}\n```text\n{text}\n```")
+        sections.append("")
+
+    return {"role": "system", "content": "\n".join(sections).strip()}
+
+
+def render_folder_contexts(contexts: list[FolderContext]) -> None:
+    if not contexts:
+        return
+
+    table = Table(title="Folder Context", box=box.SIMPLE_HEAVY, show_lines=True)
+    table.add_column("Folder", style="white")
+    table.add_column("Files", justify="right", style="green")
+    table.add_column("Skipped", justify="right", style="yellow")
+
+    for context in contexts:
+        table.add_row(str(context.root), str(len(context.files)), str(context.skipped))
+    CONSOLE.print(table)
 
 
 class DuckDuckGoHTMLParser(html.parser.HTMLParser):
@@ -1209,9 +1378,13 @@ def build_messages(
     web_enabled: bool,
     web_results: int,
     web_direct: bool,
+    folder_contexts: list[FolderContext],
 ) -> tuple[list[dict[str, str]], list[WebResult]]:
     messages = list(conversation)
     results: list[WebResult] = []
+
+    if folder_contexts:
+        messages.append(folder_context_message(folder_contexts))
 
     if web_enabled:
         query = prompt
@@ -1247,6 +1420,7 @@ def run_one_shot(
     web_enabled: bool,
     web_results: int,
     web_direct: bool,
+    folder_contexts: list[FolderContext],
 ) -> None:
     messages, _ = build_messages(
         [],
@@ -1256,6 +1430,7 @@ def run_one_shot(
         web_enabled=web_enabled,
         web_results=web_results,
         web_direct=web_direct,
+        folder_contexts=folder_contexts,
     )
     CONSOLE.print(Panel(prompt, title="You", border_style="cyan", expand=False))
     reply = get_chat_reply(settings, messages, model, stream=should_stream())
@@ -1270,6 +1445,7 @@ def run_interactive(
     web_enabled: bool,
     web_results: int,
     web_direct: bool,
+    folder_contexts: list[FolderContext],
 ) -> None:
     messages: list[dict[str, str]] = []
     header = Text()
@@ -1278,6 +1454,8 @@ def run_interactive(
     header.append(model, style="bold white")
     header.append("\nCommands: /clear, /exit, /web on, /web off", style="dim")
     header.append(f"\nWeb: {'on' if web_enabled else 'off'}", style="dim")
+    if folder_contexts:
+        header.append(f"\nFolders: {len(folder_contexts)} attached", style="dim")
     CONSOLE.print(Panel(header, border_style="green"))
 
     while True:
@@ -1312,6 +1490,7 @@ def run_interactive(
             web_enabled=web_enabled,
             web_results=web_results,
             web_direct=web_direct,
+            folder_contexts=folder_contexts,
         )
         CONSOLE.print(Panel(prompt, title="You", border_style="cyan", expand=False))
         try:
@@ -1340,6 +1519,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--web", action="store_true", help="Use web search context for answers.")
     parser.add_argument("--web-direct", action="store_true", help="Search the user prompt directly instead of asking the model to choose a query.")
     parser.add_argument("--web-results", type=int, default=5, help="Number of web search results to use.")
+    parser.add_argument("--folder", action="append", default=[], help="Attach a folder as project context. Can be used multiple times.")
+    parser.add_argument("--folder-max-files", type=int, default=20, help="Maximum text files to include per folder.")
+    parser.add_argument("--folder-max-file-chars", type=int, default=6000, help="Maximum characters to include per file.")
+    parser.add_argument("--folder-tree-entries", type=int, default=200, help="Maximum folder tree entries to show.")
     parser.add_argument("--set-key", action="store_true", help="Prompt for a new API key, validate it, and save it.")
     parser.add_argument("--config", action="store_true", help="Show config file location.")
     return parser
@@ -1376,6 +1559,17 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"Could not fetch models: {exc}") from exc
 
     model = args.model or choose_model(models, settings.default_model)
+    folder_contexts = [
+        load_folder_context(
+            folder,
+            max_files=args.folder_max_files,
+            max_file_chars=args.folder_max_file_chars,
+            max_tree_entries=args.folder_tree_entries,
+        )
+        for folder in args.folder
+    ]
+    render_folder_contexts(folder_contexts)
+
     prompt = " ".join(args.prompt).strip()
     if prompt:
         run_one_shot(
@@ -1385,6 +1579,7 @@ def main(argv: list[str] | None = None) -> None:
             web_enabled=args.web,
             web_results=args.web_results,
             web_direct=args.web_direct,
+            folder_contexts=folder_contexts,
         )
     else:
         run_interactive(
@@ -1393,6 +1588,7 @@ def main(argv: list[str] | None = None) -> None:
             web_enabled=args.web,
             web_results=args.web_results,
             web_direct=args.web_direct,
+            folder_contexts=folder_contexts,
         )
 
 
