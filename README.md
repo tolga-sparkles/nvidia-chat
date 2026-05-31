@@ -215,6 +215,10 @@ Interactive commands:
 ```text
 /web on
 /web off
+/folder
+/folder path/to/start
+/folders
+/clear-folders
 ```
 
 The model is instructed to cite web-backed claims with source numbers like
@@ -228,6 +232,32 @@ explain a project:
 ```bash
 nvidia-chat --folder path/to/project "Bu klasörü yorumla"
 nvidia-chat --folder . "Review this repository and list improvement ideas"
+```
+
+You can also attach folders inside an interactive chat:
+
+```text
+you> /folder
+```
+
+This opens a small terminal folder browser:
+
+- Enter a number to go into a child folder.
+- Enter `0` to go to the parent folder.
+- Enter `.` to attach the current folder.
+- Enter `q` to cancel.
+
+Start the browser from a specific path:
+
+```text
+you> /folder path/to/project
+```
+
+Manage attached folders:
+
+```text
+you> /folders
+you> /clear-folders
 ```
 
 Attach multiple folders:

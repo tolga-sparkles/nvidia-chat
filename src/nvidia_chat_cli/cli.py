@@ -459,6 +459,85 @@ def render_folder_contexts(contexts: list[FolderContext]) -> None:
     CONSOLE.print(table)
 
 
+def folder_browser(start: Path | str | None = None) -> Path | None:
+    current = (Path(start) if start is not None else Path.cwd()).expanduser().resolve()
+    if current.is_file():
+        current = current.parent
+    if not current.exists():
+        current = Path.cwd().resolve()
+
+    while True:
+        try:
+            dirs = [
+                path
+                for path in sorted(current.iterdir(), key=lambda item: item.name.lower())
+                if path.is_dir() and path.name not in IGNORED_DIRS
+            ]
+        except OSError as exc:
+            CONSOLE.print(Panel(str(exc), title="Folder Browser", border_style="red"))
+            current = current.parent
+            continue
+
+        table = Table(title=f"Folder Browser: {current}", box=box.SIMPLE_HEAVY)
+        table.add_column("No", justify="right", style="cyan", no_wrap=True)
+        table.add_column("Folder", style="white")
+        table.add_row(".", "Attach this folder")
+        table.add_row("0", "Go to parent folder")
+        table.add_row("q", "Cancel")
+        for index, path in enumerate(dirs, start=1):
+            table.add_row(str(index), f"{path.name}/")
+        CONSOLE.print(table)
+
+        answer = ask_number_or_text("Choose folder")
+        lowered = answer.lower()
+        if lowered in {"q", "quit", "cancel", "iptal"}:
+            return None
+        if answer == ".":
+            return current
+        if answer == "0":
+            current = current.parent
+            continue
+        if answer.isdigit():
+            index = int(answer)
+            if 1 <= index <= len(dirs):
+                current = dirs[index - 1]
+                continue
+        candidate = Path(answer).expanduser()
+        if candidate.exists() and candidate.is_dir():
+            current = candidate.resolve()
+            continue
+
+        CONSOLE.print("[red]Invalid folder choice. Use a number, 0, ., q, or a folder path.[/red]")
+
+
+def attach_folder_interactively(
+    folder_contexts: list[FolderContext],
+    *,
+    start: str | None,
+    max_files: int,
+    max_file_chars: int,
+    max_tree_entries: int,
+) -> None:
+    selected = folder_browser(Path(start).expanduser() if start else None)
+    if selected is None:
+        CONSOLE.print(Panel("Folder attach cancelled.", border_style="yellow"))
+        return
+
+    try:
+        context = load_folder_context(
+            str(selected),
+            max_files=max_files,
+            max_file_chars=max_file_chars,
+            max_tree_entries=max_tree_entries,
+        )
+    except SystemExit as exc:
+        CONSOLE.print(Panel(str(exc), title="Folder Context", border_style="red"))
+        return
+
+    folder_contexts.append(context)
+    render_folder_contexts([context])
+
+
 class DuckDuckGoHTMLParser(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -1446,13 +1525,16 @@ def run_interactive(
     web_results: int,
     web_direct: bool,
     folder_contexts: list[FolderContext],
+    folder_max_files: int,
+    folder_max_file_chars: int,
+    folder_tree_entries: int,
 ) -> None:
     messages: list[dict[str, str]] = []
     header = Text()
     header.append("NVIDIA Chat CLI\n", style="bold green")
     header.append("Model: ", style="dim")
     header.append(model, style="bold white")
-    header.append("\nCommands: /clear, /exit, /web on, /web off", style="dim")
+    header.append("\nCommands: /clear, /exit, /web on, /web off, /folder", style="dim")
     header.append(f"\nWeb: {'on' if web_enabled else 'off'}", style="dim")
     if folder_contexts:
         header.append(f"\nFolders: {len(folder_contexts)} attached", style="dim")
@@ -1480,6 +1562,23 @@ def run_interactive(
         if prompt == "/web off":
             web_enabled = False
             CONSOLE.print(Panel("Web context disabled.", border_style="blue"))
+            continue
+        if prompt == "/folders":
+            render_folder_contexts(folder_contexts)
+            continue
+        if prompt == "/clear-folders":
+            folder_contexts.clear()
+            CONSOLE.print(Panel("Folder context cleared.", border_style="yellow"))
+            continue
+        if prompt == "/folder" or prompt.startswith("/folder "):
+            parts = prompt.split(maxsplit=1)
+            attach_folder_interactively(
+                folder_contexts,
+                start=parts[1] if len(parts) == 2 else None,
+                max_files=folder_max_files,
+                max_file_chars=folder_max_file_chars,
+                max_tree_entries=folder_tree_entries,
+            )
             continue
 
         request_messages, _ = build_messages(
@@ -1589,6 +1688,9 @@ def main(argv: list[str] | None = None) -> None:
             web_results=args.web_results,
             web_direct=args.web_direct,
             folder_contexts=folder_contexts,
+            folder_max_files=args.folder_max_files,
+            folder_max_file_chars=args.folder_max_file_chars,
+            folder_tree_entries=args.folder_tree_entries,
         )
 
 
