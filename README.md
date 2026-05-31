@@ -217,6 +217,8 @@ Interactive commands:
 /web off
 /model
 /models
+/folder-context on
+/folder-context off
 /smart-folder on
 /smart-folder off
 /folder
@@ -275,6 +277,8 @@ Manage attached folders:
 ```text
 you> /folders
 you> /clear-folders
+you> /folder-context off
+you> /folder-context on
 ```
 
 Attach multiple folders:

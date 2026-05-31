@@ -11,6 +11,7 @@ assistant for NVIDIA API Catalog / NIM models.
   approximate context size.
 - [ ] Add `/remove-folder <number>` to detach a folder from the current chat.
 - [ ] Add `/refresh-folders` to rescan attached folders after local changes.
+- [x] Add `/folder-context on/off` to control whether attached folders are sent.
 - [x] Show the list of files that were actually loaded from each folder.
 - [x] Keep skip reasons visible, such as `node_modules`, `.git`, cache folders, or
   tree limits.

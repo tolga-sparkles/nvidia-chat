@@ -1784,13 +1784,14 @@ def build_messages(
     web_results: int,
     web_direct: bool,
     folder_contexts: list[FolderContext],
+    folder_context_enabled: bool,
     folder_max_file_chars: int,
     folder_smart_files: int,
 ) -> tuple[list[dict[str, str]], list[WebResult]]:
     messages = list(conversation)
     results: list[WebResult] = []
 
-    if folder_contexts:
+    if folder_contexts and folder_context_enabled:
         prepared_contexts = prepare_folder_contexts_for_prompt(
             settings,
             model,
@@ -1837,6 +1838,7 @@ def run_one_shot(
     web_results: int,
     web_direct: bool,
     folder_contexts: list[FolderContext],
+    folder_context_enabled: bool,
     folder_max_file_chars: int,
     folder_smart_files: int,
 ) -> None:
@@ -1849,6 +1851,7 @@ def run_one_shot(
         web_results=web_results,
         web_direct=web_direct,
         folder_contexts=folder_contexts,
+        folder_context_enabled=folder_context_enabled,
         folder_max_file_chars=folder_max_file_chars,
         folder_smart_files=folder_smart_files,
     )
@@ -1871,6 +1874,7 @@ def run_interactive(
     web_results: int,
     web_direct: bool,
     folder_contexts: list[FolderContext],
+    folder_context_enabled: bool,
     folder_max_files: int,
     folder_max_file_chars: int,
     folder_tree_entries: int,
@@ -1882,8 +1886,9 @@ def run_interactive(
     header.append("NVIDIA Chat CLI\n", style="bold green")
     header.append("Model: ", style="dim")
     header.append(model, style="bold white")
-    header.append("\nCommands: /clear, /exit, /model, /web on, /web off, /smart-folder on, /smart-folder off, /folder", style="dim")
+    header.append("\nCommands: /clear, /exit, /model, /web on, /web off, /folder-context on, /folder-context off, /folder", style="dim")
     header.append(f"\nWeb: {'on' if web_enabled else 'off'}", style="dim")
+    header.append(f"\nFolder context: {'on' if folder_context_enabled else 'off'}", style="dim")
     header.append(f"\nSmart folder: {'on' if folder_mode == 'smart' else 'off'}", style="dim")
     if folder_contexts:
         header.append(f"\nFolders: {len(folder_contexts)} attached", style="dim")
@@ -1922,6 +1927,14 @@ def run_interactive(
         if prompt == "/web off":
             web_enabled = False
             CONSOLE.print(Panel("Web context disabled.", border_style="blue"))
+            continue
+        if prompt == "/folder-context on":
+            folder_context_enabled = True
+            CONSOLE.print(Panel("Folder context enabled. Attached folders will be used in answers.", border_style="blue"))
+            continue
+        if prompt == "/folder-context off":
+            folder_context_enabled = False
+            CONSOLE.print(Panel("Folder context disabled. Attached folders stay attached but will not be sent.", border_style="blue"))
             continue
         if prompt == "/smart-folder on":
             folder_mode = "smart"
@@ -1978,6 +1991,7 @@ def run_interactive(
             web_results=web_results,
             web_direct=web_direct,
             folder_contexts=folder_contexts,
+            folder_context_enabled=folder_context_enabled,
             folder_max_file_chars=folder_max_file_chars,
             folder_smart_files=folder_smart_files,
         )
@@ -2073,6 +2087,7 @@ def main(argv: list[str] | None = None) -> None:
             web_results=args.web_results,
             web_direct=args.web_direct,
             folder_contexts=folder_contexts,
+            folder_context_enabled=True,
             folder_max_file_chars=args.folder_max_file_chars,
             folder_smart_files=args.folder_smart_files,
         )
@@ -2085,6 +2100,7 @@ def main(argv: list[str] | None = None) -> None:
             web_results=args.web_results,
             web_direct=args.web_direct,
             folder_contexts=folder_contexts,
+            folder_context_enabled=True,
             folder_max_files=args.folder_max_files,
             folder_max_file_chars=args.folder_max_file_chars,
             folder_tree_entries=args.folder_tree_entries,
