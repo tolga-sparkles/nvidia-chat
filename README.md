@@ -221,6 +221,19 @@ Interactive commands:
 /clear-folders
 ```
 
+Folder options:
+
+```bash
+# Smart file selection is the default.
+nvidia-chat --folder . "Bu projedeki auth bugını bul"
+
+# Let the model choose up to 20 relevant files per prompt.
+nvidia-chat --folder . --folder-smart-files 20 "Find the login/session bug"
+
+# Load every matching text file up front instead of smart selection.
+nvidia-chat --folder . --folder-mode all "Summarize everything loaded"
+```
+
 The model is instructed to cite web-backed claims with source numbers like
 `[1]` and `[2]`.
 
@@ -270,6 +283,9 @@ By default, folder context uses smart selection. The CLI indexes the folder
 tree and candidate text files first. For each prompt, the selected model chooses
 the most relevant files to read, then only those files are sent as context. This
 keeps large projects useful without flooding the model with unrelated files.
+For example, if you ask for an auth bug, smart mode should prefer files related
+to auth, login, sessions, middleware, config, and tests instead of sending the
+whole project.
 
 Heavy folders such as `.git`, `node_modules`, `.venv`, `dist`, `build`, and
 cache directories are ignored.
