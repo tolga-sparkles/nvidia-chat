@@ -320,6 +320,17 @@ The folder summary also shows why tree entries were skipped, for example
 Folder context is attached to each request but is not permanently written into
 the chat history.
 
+If NVIDIA returns `429 Too Many Requests` while a large folder is attached,
+switch smart folder selection back on or reduce folder limits:
+
+```text
+you> /smart-folder on
+```
+
+```bash
+nvidia-chat --folder . --folder-max-files 100 --folder-smart-files 10
+```
+
 ## Thinking Output
 
 Some reasoning models return separate thinking/reasoning fields or embed

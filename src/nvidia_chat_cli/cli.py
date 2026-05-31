@@ -163,6 +163,21 @@ class ApiError(RuntimeError):
         super().__init__(message)
 
 
+def format_api_error(exc: ApiError) -> str:
+    message = str(exc).strip()
+    if exc.status == 429:
+        return (
+            "NVIDIA API rate limit returned 429 Too Many Requests.\n\n"
+            "This can happen when requests are sent too quickly, or when the prompt/context is too large. "
+            "If a folder is attached in all mode, try `/smart-folder on` so only relevant files are loaded, "
+            "or reduce `--folder-max-files` / `--folder-smart-files`.\n\n"
+            f"Provider message: {message}"
+        )
+    if exc.status:
+        return f"NVIDIA API error {exc.status}: {message}"
+    return message
+
+
 def config_dir() -> Path:
     root = os.environ.get("XDG_CONFIG_HOME")
     if root:
@@ -301,11 +316,12 @@ def extract_error_message(raw: str) -> str | None:
     except json.JSONDecodeError:
         return None
 
-    detail = payload.get("detail") or payload.get("message") or payload.get("error")
+    detail = payload.get("detail") or payload.get("message") or payload.get("error") or payload.get("title")
+    status = payload.get("status")
     if isinstance(detail, dict):
         return str(detail.get("message") or detail)
     if detail:
-        return str(detail)
+        return f"{status} {detail}" if status else str(detail)
     return None
 
 
@@ -685,7 +701,7 @@ def prepare_folder_contexts_for_prompt(
                     model,
                 )
         except ApiError as exc:
-            CONSOLE.print(Panel(f"Could not choose smart folder files: {exc}\nUsing folder tree only.", title="Smart Context", border_style="yellow"))
+            CONSOLE.print(Panel(f"Could not choose smart folder files: {format_api_error(exc)}\nUsing folder tree only.", title="Smart Context", border_style="yellow"))
             prepared.append(context)
             continue
 
@@ -1789,7 +1805,7 @@ def build_messages(
                 try:
                     query = decide_web_query(settings, model, conversation, prompt)
                 except ApiError as exc:
-                    CONSOLE.print(Panel(f"Could not plan web search: {exc}\nUsing the prompt as the query.", title="Web", border_style="yellow"))
+                    CONSOLE.print(Panel(f"Could not plan web search: {format_api_error(exc)}\nUsing the prompt as the query.", title="Web", border_style="yellow"))
                     query = sanitize_search_query(prompt)
         else:
             query = sanitize_search_query(prompt)
@@ -1833,7 +1849,11 @@ def run_one_shot(
         folder_smart_files=folder_smart_files,
     )
     CONSOLE.print(Panel(prompt, title="You", border_style="cyan", expand=False))
-    reply = get_chat_reply(settings, messages, model, stream=should_stream())
+    try:
+        reply = get_chat_reply(settings, messages, model, stream=should_stream())
+    except ApiError as exc:
+        CONSOLE.print(Panel(format_api_error(exc), title="Error", border_style="red"))
+        return
     if not reply.streamed:
         render_reply(reply)
 
@@ -1946,7 +1966,7 @@ def run_interactive(
         try:
             reply = get_chat_reply(settings, request_messages, model, stream=should_stream())
         except ApiError as exc:
-            CONSOLE.print(Panel(str(exc), title="Error", border_style="red"))
+            CONSOLE.print(Panel(format_api_error(exc), title="Error", border_style="red"))
             continue
 
         messages.append({"role": "user", "content": prompt})
@@ -2001,7 +2021,7 @@ def main(argv: list[str] | None = None) -> None:
         try:
             models = fetch_models(settings)
         except ApiError as exc:
-            raise SystemExit(f"Could not fetch models: {exc}") from exc
+            raise SystemExit(f"Could not fetch models: {format_api_error(exc)}") from exc
         print_models(models, raw=args.raw_models, popular_only=args.popular)
         return
 
@@ -2009,7 +2029,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         models = fetch_models(settings)
     except ApiError as exc:
-        raise SystemExit(f"Could not fetch models: {exc}") from exc
+        raise SystemExit(f"Could not fetch models: {format_api_error(exc)}") from exc
 
     model = args.model or choose_model(models, settings.default_model)
     folder_contexts = [
