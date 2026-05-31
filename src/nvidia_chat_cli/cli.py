@@ -20,6 +20,7 @@ from rich import box
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
@@ -27,6 +28,9 @@ from rich.text import Text
 APP_NAME = "nvidia-chat-cli"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_VALIDATE_MODEL = "meta/llama-3.1-8b-instruct"
+DEFAULT_FOLDER_MAX_FILES = 2000
+DEFAULT_FOLDER_MAX_FILE_CHARS = 6000
+DEFAULT_FOLDER_TREE_ENTRIES = 2000
 CONSOLE = Console()
 
 POPULAR_MODELS = [
@@ -357,25 +361,52 @@ def is_probably_text_file(path: Path) -> bool:
 
 
 def safe_read_text(path: Path, *, max_chars: int) -> str | None:
+    byte_limit = max(4096, max_chars * 4)
     try:
-        raw = path.read_bytes()
+        with path.open("rb") as file:
+            raw = file.read(byte_limit + 1)
     except OSError:
         return None
 
     if b"\x00" in raw[:4096]:
         return None
 
-    text = raw.decode("utf-8", errors="replace")
-    if len(text) > max_chars:
+    truncated = len(raw) > byte_limit
+    text = raw[:byte_limit].decode("utf-8", errors="replace")
+    if truncated or len(text) > max_chars:
         return f"{text[:max_chars].rstrip()}\n\n[truncated]"
     return text
 
 
-def build_folder_tree(root: Path, *, max_entries: int) -> tuple[str, int]:
+def folder_progress() -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=CONSOLE,
+        transient=True,
+    )
+
+
+def discover_folder_paths(root: Path) -> list[Path]:
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=CONSOLE,
+        transient=True,
+    ) as progress:
+        progress.add_task(f"Scanning {root}", total=None)
+        return sorted(root.rglob("*"), key=lambda item: str(item.relative_to(root)))
+
+
+def build_folder_tree(root: Path, paths: list[Path], *, max_entries: int) -> tuple[str, int]:
     lines: list[str] = []
     skipped = 0
 
-    for path in sorted(root.rglob("*"), key=lambda item: str(item.relative_to(root))):
+    for path in paths:
         relative = path.relative_to(root)
         if should_skip_path(relative):
             skipped += 1
@@ -404,19 +435,24 @@ def load_folder_context(
     if not root.is_dir():
         raise SystemExit(f"Not a folder: {root}")
 
-    tree, skipped = build_folder_tree(root, max_entries=max_tree_entries)
     files: list[tuple[str, str]] = []
 
-    for path in sorted(root.rglob("*"), key=lambda item: str(item.relative_to(root))):
-        relative = path.relative_to(root)
-        if should_skip_path(relative) or not path.is_file() or not is_probably_text_file(path):
-            continue
-        text = safe_read_text(path, max_chars=max_file_chars)
-        if text is None:
-            continue
-        files.append((str(relative), text))
-        if len(files) >= max_files:
-            break
+    paths = discover_folder_paths(root)
+    tree, skipped = build_folder_tree(root, paths, max_entries=max_tree_entries)
+
+    with folder_progress() as progress:
+        task = progress.add_task(f"Loading folder context from {root}", total=len(paths))
+        for path in paths:
+            progress.advance(task)
+            relative = path.relative_to(root)
+            if should_skip_path(relative) or not path.is_file() or not is_probably_text_file(path):
+                continue
+            text = safe_read_text(path, max_chars=max_file_chars)
+            if text is None:
+                continue
+            files.append((str(relative), text))
+            if len(files) >= max_files:
+                break
 
     return FolderContext(root=root, tree=tree, files=files, skipped=skipped)
 
@@ -435,7 +471,7 @@ def folder_context_message(contexts: list[FolderContext]) -> dict[str, str]:
         sections.append("### Tree")
         sections.append(context.tree or "[empty tree]")
         if context.skipped:
-            sections.append(f"\n[Skipped {context.skipped} additional entries because of limits or ignore rules.]")
+            sections.append(f"\n[Skipped {context.skipped} tree entries because of limits or ignore rules.]")
         sections.append("")
         sections.append("### Files")
         for relative, text in context.files:
@@ -451,8 +487,8 @@ def render_folder_contexts(contexts: list[FolderContext]) -> None:
 
     table = Table(title="Folder Context", box=box.SIMPLE_HEAVY, show_lines=True)
     table.add_column("Folder", style="white")
-    table.add_column("Files", justify="right", style="green")
-    table.add_column("Skipped", justify="right", style="yellow")
+    table.add_column("Files loaded", justify="right", style="green")
+    table.add_column("Tree skipped", justify="right", style="yellow")
 
     for context in contexts:
         table.add_row(str(context.root), str(len(context.files)), str(context.skipped))
@@ -1608,6 +1644,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nvidia-chat",
         description="Terminal chat client for NVIDIA NIM models.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("prompt", nargs="*", help="One-shot prompt. Omit for interactive chat.")
     parser.add_argument("-m", "--model", help="Model id to use.")
@@ -1619,9 +1656,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--web-direct", action="store_true", help="Search the user prompt directly instead of asking the model to choose a query.")
     parser.add_argument("--web-results", type=int, default=5, help="Number of web search results to use.")
     parser.add_argument("--folder", action="append", default=[], help="Attach a folder as project context. Can be used multiple times.")
-    parser.add_argument("--folder-max-files", type=int, default=20, help="Maximum text files to include per folder.")
-    parser.add_argument("--folder-max-file-chars", type=int, default=6000, help="Maximum characters to include per file.")
-    parser.add_argument("--folder-tree-entries", type=int, default=200, help="Maximum folder tree entries to show.")
+    parser.add_argument("--folder-max-files", type=int, default=DEFAULT_FOLDER_MAX_FILES, help="Maximum text files to include per folder.")
+    parser.add_argument("--folder-max-file-chars", type=int, default=DEFAULT_FOLDER_MAX_FILE_CHARS, help="Maximum characters to include per file.")
+    parser.add_argument("--folder-tree-entries", type=int, default=DEFAULT_FOLDER_TREE_ENTRIES, help="Maximum folder tree entries to show.")
     parser.add_argument("--set-key", action="store_true", help="Prompt for a new API key, validate it, and save it.")
     parser.add_argument("--config", action="store_true", help="Show config file location.")
     return parser

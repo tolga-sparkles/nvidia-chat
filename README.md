@@ -274,11 +274,16 @@ Useful limits:
 
 ```bash
 nvidia-chat --folder . \
-  --folder-max-files 30 \
+  --folder-max-files 2000 \
   --folder-max-file-chars 8000 \
-  --folder-tree-entries 300 \
+  --folder-tree-entries 2000 \
   "Summarize the architecture"
 ```
+
+When a folder is attached, `nvidia-chat` shows scan/load progress in the
+terminal. By default it can include up to 2000 text files per folder, while
+showing up to 2000 folder tree entries and still skipping heavy dependency,
+cache, build, and binary paths.
 
 Folder context is attached to each request but is not permanently written into
 the chat history.
