@@ -269,6 +269,8 @@ def request_json(
         raise ApiError(exc.code, extract_error_message(details) or details or exc.reason) from exc
     except urllib.error.URLError as exc:
         raise ApiError(None, str(exc.reason)) from exc
+    except TimeoutError as exc:
+        raise ApiError(None, "Request timed out while waiting for NVIDIA.") from exc
     except json.JSONDecodeError as exc:
         raise ApiError(None, f"Invalid JSON response: {exc}") from exc
 
@@ -308,6 +310,8 @@ def request_sse(
         raise ApiError(exc.code, extract_error_message(details) or details or exc.reason) from exc
     except urllib.error.URLError as exc:
         raise ApiError(None, str(exc.reason)) from exc
+    except TimeoutError as exc:
+        raise ApiError(None, "Request timed out while waiting for NVIDIA.") from exc
 
 
 def extract_error_message(raw: str) -> str | None:
